@@ -276,6 +276,7 @@
       <button class="btn primary" id="addMemberBtn">+ Add Member</button>
       <button class="btn" id="exportCsvBtn">Export CSV</button>
       <button class="btn" id="importCsvBtn">Import CSV</button>
+      <button class="btn" id="templateCsvBtn">Download Template</button>
       <input type="file" id="csvFileInput" accept=".csv">
     </div>
     <section class="block" style="padding:0;">
@@ -323,6 +324,21 @@
       </h3>
       <p style="color:var(--muted);font-size:11.5px;margin-bottom:10px;margin-top:-4px;">Showing this week (<span class="mono" id="leaderboardWeekLabel">—</span>). Every column is labeled so this reads on its own, without you in the room.</p>
       <div id="leaderboardWrap" class="table-wrap"><div class="empty">No reports imported yet.</div></div>
+    </section>
+
+    <section class="block">
+      <h3>Desert Storm <span style="font-weight:400;text-transform:none;font-size:11.5px;color:var(--dim);">— team sign-up &amp; attendance</span></h3>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px;">Sweet and simple: which team each member's on, and whether they showed. <span class="mono">Date:</span> <input type="date" id="dsDate" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);border-radius:6px;padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:12.5px;"></p>
+      <div class="table-wrap">
+        <table id="dsTable">
+          <thead><tr><th>Name</th><th>Team</th><th>Attendance</th></tr></thead>
+          <tbody id="dsTableBody"></tbody>
+        </table>
+      </div>
+      <div class="modal-actions" style="justify-content:space-between;margin-top:10px;">
+        <span class="mono" id="dsSummary" style="color:var(--muted);font-size:12px;"></span>
+        <button class="btn primary" id="dsSaveBtn">Save Desert Storm</button>
+      </div>
     </section>
 
     <section class="block">
@@ -457,7 +473,8 @@ let state = {
   editingId: null,
   csvParsedRows: [],
   reportParsedRows: [],
-  leaderboardEvent: null
+  leaderboardEvent: null,
+  dsDate: new Date().toISOString().slice(0,10)
 };
 
 function slugifyEvent(eventName){
@@ -547,6 +564,7 @@ function renderAll(){
   renderLeaderboardOptions();
   renderLeaderboard();
   renderWeekManagement();
+  renderDesertStorm();
 }
 
 function renderDashboard(){
@@ -798,6 +816,17 @@ function csvEscape(v){
   v = String(v);
   return /[",\n]/.test(v) ? `"${v.replace(/"/g,'""')}"` : v;
 }
+document.getElementById("templateCsvBtn").addEventListener("click", ()=>{
+  const cols = ["name","rank","power","vsWeekly","donationsWeekly","participationPct","missedCount","notes"];
+  const example = ["ExampleName","R3","1500000","15000000","21000","85","0","Optional leadership note"];
+  const csv = [cols.join(","), example.map(csvEscape).join(",")].join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "nblv-member-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+});
 
 /* ============ CSV IMPORT ============ */
 const csvModal = document.getElementById("csvModalBackdrop");
@@ -1085,6 +1114,74 @@ async function closeWeek(eventKey){
     showToast("Week closed and archived.");
   }catch(e){ console.error(e); showToast("Couldn't close the week — check connection.", true); }
 }
+
+/* ============ DESERT STORM (team sign-up + attendance) ============ */
+const DS_STATUS = {
+  "participated": {emoji:"🟢", label:"Participated", cls:"good"},
+  "no-show":      {emoji:"🔴", label:"No-Show", cls:"crit"},
+  "excused":      {emoji:"🟡", label:"Excused", cls:"attn"},
+  "not-assigned": {emoji:"⚪", label:"Not Assigned", cls:""}
+};
+document.getElementById("dsDate").value = state.dsDate;
+document.getElementById("dsDate").addEventListener("change",(e)=>{
+  state.dsDate = e.target.value || state.dsDate;
+  renderDesertStorm();
+});
+
+function renderDesertStorm(){
+  const dateEl = document.getElementById("dsDate");
+  if(dateEl.value !== state.dsDate) dateEl.value = state.dsDate;
+  const saved = (state.reports["desert-storm"]||{})[state.dsDate] || {};
+  const members = Object.values(state.members).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  const tbody = document.getElementById("dsTableBody");
+  if(members.length===0){
+    tbody.innerHTML = `<tr><td colspan="3" class="empty">Add members first, on the Members tab.</td></tr>`;
+    document.getElementById("dsSummary").textContent = "";
+    return;
+  }
+  tbody.innerHTML = members.map(m=>{
+    const rec = saved[m.id] || {};
+    const status = rec.status || "not-assigned";
+    return `<tr data-id="${m.id}">
+      <td>${esc(m.name)}</td>
+      <td><input type="text" class="ds-team" value="${esc(rec.team||"")}" placeholder="e.g. Team A" style="width:120px;background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);border-radius:5px;padding:5px 8px;font-size:12.5px;"></td>
+      <td><select class="ds-status" style="background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);border-radius:5px;padding:5px 8px;font-size:12.5px;">
+        ${Object.entries(DS_STATUS).map(([k,v])=>`<option value="${k}" ${k===status?"selected":""}>${v.emoji} ${v.label}</option>`).join("")}
+      </select></td>
+    </tr>`;
+  }).join("");
+  updateDsSummary();
+  tbody.querySelectorAll(".ds-status").forEach(sel=>sel.addEventListener("change", updateDsSummary));
+}
+
+function updateDsSummary(){
+  const counts = {participated:0,"no-show":0,excused:0,"not-assigned":0};
+  document.querySelectorAll("#dsTableBody tr[data-id]").forEach(tr=>{
+    const status = tr.querySelector(".ds-status")?.value || "not-assigned";
+    counts[status] = (counts[status]||0)+1;
+  });
+  document.getElementById("dsSummary").textContent =
+    `🟢 ${counts.participated} · 🔴 ${counts["no-show"]} · 🟡 ${counts.excused} · ⚪ ${counts["not-assigned"]}`;
+}
+
+document.getElementById("dsSaveBtn").addEventListener("click", async ()=>{
+  const rows = document.querySelectorAll("#dsTableBody tr[data-id]");
+  if(rows.length===0) return;
+  const payload = {};
+  rows.forEach(tr=>{
+    const id = tr.dataset.id;
+    const team = tr.querySelector(".ds-team").value.trim();
+    const status = tr.querySelector(".ds-status").value;
+    payload[id] = { name: state.members[id]?.name || "", team, status };
+  });
+  try{
+    await fbPut(`/reports/desert-storm/${state.dsDate}`, payload);
+    state.reports["desert-storm"] = state.reports["desert-storm"] || {};
+    state.reports["desert-storm"][state.dsDate] = payload;
+    renderAll();
+    showToast("Desert Storm saved for "+state.dsDate+".");
+  }catch(e){ console.error(e); showToast("Save failed — check connection.", true); }
+});
 
 /* ============ TOAST ============ */
 let toastTimer;
