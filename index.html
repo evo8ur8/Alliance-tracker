@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NBLV // Command</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0D12;
+    --panel:#12161F;
+    --panel-2:#161B26;
+    --hairline:#232B38;
+    --text:#E8ECF1;
+    --muted:#8B96A5;
+    --dim:#5B6472;
+    --brand:#3DDC84;
+    --brand-dim:#1F5C3E;
+    --good:#3DDC84;
+    --attn:#F2B84B;
+    --warn:#F2793A;
+    --crit:#F24B4B;
+    --good-bg:rgba(61,220,132,0.10);
+    --attn-bg:rgba(242,184,75,0.10);
+    --warn-bg:rgba(242,121,58,0.10);
+    --crit-bg:rgba(242,75,75,0.10);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .display{font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:0.02em;}
+
+  /* ---- Top bar ---- */
+  header{
+    border-bottom:1px solid var(--hairline);
+    background:linear-gradient(180deg,#0D1117,#0A0D12);
+    padding:14px 20px;
+    display:flex;align-items:center;justify-content:space-between;
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand-mark{
+    width:34px;height:34px;border:1px solid var(--brand-dim);border-radius:6px;
+    display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 30% 20%, rgba(61,220,132,0.18), transparent 70%);
+    color:var(--brand);font-family:'Rajdhani',sans-serif;font-weight:700;font-size:15px;
+  }
+  .brand-text .name{font-family:'Rajdhani',sans-serif;font-weight:700;font-size:19px;letter-spacing:0.06em;}
+  .brand-text .sub{font-size:10.5px;color:var(--dim);letter-spacing:0.14em;text-transform:uppercase;margin-top:1px;}
+  .conn-status{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);}
+  .dot.off{background:var(--crit);box-shadow:0 0 8px var(--crit);}
+
+  /* ---- Nav ---- */
+  nav{
+    display:flex;gap:2px;padding:0 20px;border-bottom:1px solid var(--hairline);
+    background:#0B0F16;overflow-x:auto;
+  }
+  nav button{
+    background:none;border:none;color:var(--muted);font-family:'Rajdhani',sans-serif;
+    font-weight:600;font-size:14px;letter-spacing:0.05em;text-transform:uppercase;
+    padding:12px 16px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;
+  }
+  nav button:hover{color:var(--text);}
+  nav button.active{color:var(--brand);border-bottom-color:var(--brand);}
+
+  main{padding:22px 20px 60px;max-width:1280px;margin:0 auto;}
+  .view{display:none;}
+  .view.active{display:block;animation:fade .25s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+  /* ---- Readiness bar (signature element) ---- */
+  .readiness{
+    border:1px solid var(--hairline);background:var(--panel);border-radius:10px;
+    padding:16px 18px 14px;margin-bottom:18px;
+  }
+  .readiness-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;}
+  .readiness-head h2{font-family:'Rajdhani',sans-serif;font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:600;}
+  .readiness-head .verdict{font-family:'Rajdhani',sans-serif;font-weight:700;font-size:14px;}
+  .readiness-track{
+    height:10px;border-radius:5px;overflow:hidden;display:flex;background:#1A2029;
+    border:1px solid var(--hairline);
+  }
+  .readiness-track div{height:100%;transition:width .4s ease;}
+  .readiness-legend{display:flex;gap:18px;margin-top:10px;flex-wrap:wrap;}
+  .readiness-legend span{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  .readiness-legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}
+
+  /* ---- Stat cards ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px;}
+  .card{
+    border:1px solid var(--hairline);background:var(--panel);border-radius:10px;padding:14px 16px;
+  }
+  .card .label{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;}
+  .card .value{font-family:'Rajdhani',sans-serif;font-weight:700;font-size:28px;line-height:1;}
+  .card .value.good{color:var(--good);}
+  .card .value.attn{color:var(--attn);}
+  .card .value.warn{color:var(--warn);}
+  .card .value.crit{color:var(--crit);}
+
+  section.block{
+    border:1px solid var(--hairline);background:var(--panel);border-radius:10px;
+    padding:16px 18px;margin-bottom:16px;
+  }
+  section.block h3{
+    font-family:'Rajdhani',sans-serif;font-size:14px;letter-spacing:0.08em;text-transform:uppercase;
+    color:var(--muted);font-weight:600;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .empty{color:var(--dim);font-size:13px;padding:10px 0;}
+
+  /* ---- Toolbar / buttons ---- */
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .search{
+    flex:1;min-width:160px;background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);
+    padding:9px 12px;border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;
+  }
+  .search:focus{outline:none;border-color:var(--brand-dim);}
+  select.filter{
+    background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);
+    padding:9px 10px;border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;
+  }
+  button.btn{
+    background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);
+    padding:9px 14px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;
+    font-family:'Inter',sans-serif;white-space:nowrap;
+  }
+  button.btn:hover{border-color:var(--brand-dim);color:var(--brand);}
+  button.btn.primary{background:var(--brand);color:#08130D;border-color:var(--brand);}
+  button.btn.primary:hover{filter:brightness(1.08);color:#08130D;}
+  button.btn.danger:hover{border-color:var(--crit);color:var(--crit);}
+  input[type=file]{display:none;}
+
+  /* ---- Table ---- */
+  .table-wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{
+    text-align:left;padding:9px 10px;color:var(--dim);font-weight:600;text-transform:uppercase;
+    font-size:10.5px;letter-spacing:0.06em;border-bottom:1px solid var(--hairline);cursor:pointer;
+    white-space:nowrap;user-select:none;
+  }
+  th:hover{color:var(--muted);}
+  th.sorted{color:var(--brand);}
+  td{padding:9px 10px;border-bottom:1px solid #1A2029;white-space:nowrap;}
+  tr.member-row{cursor:pointer;}
+  tr.member-row:hover td{background:#161C26;}
+  .badge{
+    display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;
+    font-size:11px;font-weight:600;font-family:'Rajdhani',sans-serif;letter-spacing:0.02em;
+  }
+  .badge.good{background:var(--good-bg);color:var(--good);}
+  .badge.attn{background:var(--attn-bg);color:var(--attn);}
+  .badge.warn{background:var(--warn-bg);color:var(--warn);}
+  .badge.crit{background:var(--crit-bg);color:var(--crit);}
+  .badge i{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;}
+
+  /* ---- Forms ---- */
+  .form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
+  .field label{display:block;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;}
+  .field input,.field select,.field textarea{
+    width:100%;background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);
+    padding:8px 10px;border-radius:6px;font-size:13px;font-family:'Inter',sans-serif;
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brand-dim);}
+  .field textarea{resize:vertical;min-height:60px;}
+
+  /* ---- Modal ---- */
+  .modal-backdrop{
+    display:none;position:fixed;inset:0;background:rgba(5,7,10,0.7);z-index:50;
+    align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;
+    backdrop-filter:blur(2px);
+  }
+  .modal-backdrop.active{display:flex;}
+  .modal{
+    background:var(--panel);border:1px solid var(--hairline);border-radius:12px;
+    width:100%;max-width:640px;padding:22px;
+  }
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+  .modal-head h2{font-family:'Rajdhani',sans-serif;font-size:19px;font-weight:700;}
+  .modal-close{background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;line-height:1;}
+  .modal-close:hover{color:var(--text);}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+
+  .csv-preview{max-height:280px;overflow:auto;border:1px solid var(--hairline);border-radius:8px;margin-top:12px;}
+  .csv-preview table{font-size:11.5px;}
+  .csv-row-new td{background:rgba(61,220,132,0.06);}
+  .csv-row-change td{background:rgba(242,184,75,0.06);}
+  .csv-row-error td{background:rgba(242,75,75,0.08);color:var(--crit);}
+  .toast{
+    position:fixed;bottom:20px;right:20px;background:var(--panel);border:1px solid var(--brand-dim);
+    color:var(--text);padding:12px 18px;border-radius:8px;font-size:13px;z-index:100;
+    display:none;box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  }
+  .toast.show{display:block;animation:fade .2s ease;}
+  .toast.err{border-color:var(--crit);}
+  ::-webkit-scrollbar{height:8px;width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--hairline);border-radius:4px;}
+  @media (max-width:640px){
+    .card .value{font-size:22px;}
+    header{padding:12px 14px;}
+    main{padding:16px 12px 50px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">N</div>
+    <div class="brand-text">
+      <div class="name">NBLV COMMAND</div>
+      <div class="sub">Alliance Performance Tracker</div>
+    </div>
+  </div>
+  <div class="conn-status"><span class="dot" id="connDot"></span><span id="connText">Connecting…</span></div>
+</header>
+
+<nav>
+  <button class="active" data-view="dashboard">Dashboard</button>
+  <button data-view="members">Members</button>
+  <button data-view="standards">Standards</button>
+</nav>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <div class="view active" id="view-dashboard">
+    <div class="readiness">
+      <div class="readiness-head">
+        <h2>Alliance Readiness</h2>
+        <span class="verdict mono" id="readinessVerdict">—</span>
+      </div>
+      <div class="readiness-track" id="readinessTrack"></div>
+      <div class="readiness-legend">
+        <span><i style="background:var(--good)"></i>Good Standing <b class="mono" id="legendGood">0</b></span>
+        <span><i style="background:var(--attn)"></i>Attention <b class="mono" id="legendAttn">0</b></span>
+        <span><i style="background:var(--warn)"></i>Warning/Probation <b class="mono" id="legendWarn">0</b></span>
+        <span><i style="background:var(--crit)"></i>Critical/Review <b class="mono" id="legendCrit">0</b></span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><div class="label">Total Members</div><div class="value" id="statTotal">0</div></div>
+      <div class="card"><div class="label">Good Standing</div><div class="value good" id="statGood">0</div></div>
+      <div class="card"><div class="label">Attention</div><div class="value attn" id="statAttn">0</div></div>
+      <div class="card"><div class="label">Warning/Probation</div><div class="value warn" id="statWarn">0</div></div>
+      <div class="card"><div class="label">Critical/Review</div><div class="value crit" id="statCrit">0</div></div>
+      <div class="card"><div class="label">Avg Weekly VS</div><div class="value" id="statAvgVS">0</div></div>
+      <div class="card"><div class="label">Avg Participation</div><div class="value" id="statAvgPart">0%</div></div>
+    </div>
+
+    <section class="block">
+      <h3>Needs Leadership Attention</h3>
+      <div id="attentionList" class="table-wrap"><div class="empty">No members currently flagged.</div></div>
+    </section>
+  </div>
+
+  <!-- MEMBERS -->
+  <div class="view" id="view-members">
+    <div class="toolbar">
+      <input type="text" class="search" id="memberSearch" placeholder="Search by name…">
+      <select class="filter" id="statusFilter">
+        <option value="">All Statuses</option>
+        <option value="good">🟢 Good Standing</option>
+        <option value="attn">🟡 Attention</option>
+        <option value="warn">🟠 Warning/Probation</option>
+        <option value="crit">🔴 Critical/Review</option>
+      </select>
+      <button class="btn primary" id="addMemberBtn">+ Add Member</button>
+      <button class="btn" id="exportCsvBtn">Export CSV</button>
+      <button class="btn" id="importCsvBtn">Import CSV</button>
+      <input type="file" id="csvFileInput" accept=".csv">
+    </div>
+    <section class="block" style="padding:0;">
+      <div class="table-wrap">
+        <table id="memberTable">
+          <thead>
+            <tr>
+              <th data-sort="name">Name</th>
+              <th data-sort="rank">Rank</th>
+              <th data-sort="power">Power</th>
+              <th data-sort="vsWeekly">Weekly VS</th>
+              <th data-sort="donationsWeekly">Donations</th>
+              <th data-sort="participationPct">Participation</th>
+              <th data-sort="missedCount">Missed</th>
+              <th data-sort="status">Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="memberTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- STANDARDS -->
+  <div class="view" id="view-standards">
+    <section class="block">
+      <h3>Alliance Standards</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:16px;">These thresholds drive every member's computed status alliance-wide. Changing a number here re-scores everyone immediately — no rebuilding required.</p>
+      <div class="form-grid" id="standardsForm">
+        <div class="field"><label>VS Min / Day</label><input type="number" id="std_vsMinDaily"></div>
+        <div class="field"><label>VS Min / Week</label><input type="number" id="std_vsMinWeekly"></div>
+        <div class="field"><label>VS Target / Week</label><input type="number" id="std_vsTargetWeekly"></div>
+        <div class="field"><label>VS Strong Contributor / Week</label><input type="number" id="std_vsStrongWeekly"></div>
+        <div class="field"><label>Donation Min / Day</label><input type="number" id="std_donMinDaily"></div>
+        <div class="field"><label>Donation Min / Week</label><input type="number" id="std_donMinWeekly"></div>
+        <div class="field"><label>Participation Target %</label><input type="number" id="std_participationTarget"></div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:18px;">
+        <button class="btn primary" id="saveStandardsBtn">Save Standards</button>
+      </div>
+    </section>
+    <section class="block">
+      <h3>Enforcement Tiers (reference)</h3>
+      <p style="color:var(--muted);font-size:12.5px;line-height:1.7;">
+        🟢 <b>Good Standing</b> — meets requirements.<br>
+        🟡 <b>First Miss</b> — private reminder, no punishment.<br>
+        🟠 <b>Second Miss</b> — rank step down, leadership contact, improvement period.<br>
+        🔴 <b>Third Miss</b> — further rank step down, leadership review, possible removal.<br>
+        Missed-count and status can always be manually overridden per member with a reason — see Members tab.
+      </p>
+    </section>
+  </div>
+
+</main>
+
+<!-- Member modal -->
+<div class="modal-backdrop" id="memberModalBackdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="memberModalTitle">Add Member</h2>
+      <button class="modal-close" id="memberModalClose">×</button>
+    </div>
+    <div class="form-grid">
+      <div class="field"><label>Name</label><input type="text" id="f_name"></div>
+      <div class="field"><label>Rank</label>
+        <select id="f_rank"><option>R5</option><option>R4</option><option selected>R3</option><option>R2</option><option>R1</option></select>
+      </div>
+      <div class="field"><label>Power</label><input type="number" id="f_power"></div>
+      <div class="field"><label>Weekly VS</label><input type="number" id="f_vsWeekly"></div>
+      <div class="field"><label>Weekly Donations</label><input type="number" id="f_donationsWeekly"></div>
+      <div class="field"><label>Participation %</label><input type="number" id="f_participationPct" min="0" max="100"></div>
+      <div class="field"><label>Missed Requirements</label><input type="number" id="f_missedCount" min="0"></div>
+      <div class="field">
+        <label>Status Override</label>
+        <select id="f_overrideStatus">
+          <option value="">Auto (from standards)</option>
+          <option value="good">🟢 Good Standing</option>
+          <option value="attn">🟡 Attention</option>
+          <option value="warn">🟠 Warning/Probation</option>
+          <option value="crit">🔴 Critical/Review</option>
+        </select>
+      </div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Leadership Notes</label>
+      <textarea id="f_notes" placeholder="e.g. Vacation — excused this week."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger" id="deleteMemberBtn" style="margin-right:auto;display:none;">Delete Member</button>
+      <button class="btn" id="memberCancelBtn">Cancel</button>
+      <button class="btn primary" id="memberSaveBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- CSV import modal -->
+<div class="modal-backdrop" id="csvModalBackdrop">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-head">
+      <h2>Import CSV</h2>
+      <button class="modal-close" id="csvModalClose">×</button>
+    </div>
+    <p style="color:var(--muted);font-size:12.5px;">Columns expected: <span class="mono">name, rank, power, vsWeekly, donationsWeekly, participationPct, missedCount, notes</span>. Existing members are matched by name (case-insensitive). Review before confirming — nothing is written until you click Confirm Import.</p>
+    <div class="csv-preview" id="csvPreviewWrap"></div>
+    <div class="modal-actions">
+      <span class="mono" id="csvSummary" style="margin-right:auto;color:var(--muted);font-size:12px;"></span>
+      <button class="btn" id="csvCancelBtn">Cancel</button>
+      <button class="btn primary" id="csvConfirmBtn">Confirm Import</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+/* ============ CONFIG ============ */
+// Fresh data path under the existing free Firebase project — keeps the old
+// allianceRoster node untouched so nothing has to be migrated.
+const FIREBASE_BASE = "https://last-war-alliance-default-rtdb.firebaseio.com";
+const DATA_PATH = "/nblvTracker";
+
+const DEFAULT_STANDARDS = {
+  vsMinDaily: 2000000,
+  vsMinWeekly: 12000000,
+  vsTargetWeekly: 20000000,
+  vsStrongWeekly: 30000000,
+  donMinDaily: 3000,
+  donMinWeekly: 21000,
+  participationTarget: 80
+};
+
+let state = {
+  standards: {...DEFAULT_STANDARDS},
+  members: {},       // id -> member
+  sortKey: "name",
+  sortDir: 1,
+  editingId: null,
+  csvParsedRows: []
+};
+
+/* ============ FIREBASE (REST, no SDK/auth) ============ */
+async function fbGet(path){
+  const res = await fetch(`${FIREBASE_BASE}${DATA_PATH}${path}.json`);
+  if(!res.ok) throw new Error("Firebase GET failed: "+res.status);
+  return res.json();
+}
+async function fbPut(path, data){
+  const res = await fetch(`${FIREBASE_BASE}${DATA_PATH}${path}.json`,{
+    method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data)
+  });
+  if(!res.ok) throw new Error("Firebase PUT failed: "+res.status);
+  return res.json();
+}
+async function fbPost(path, data){
+  const res = await fetch(`${FIREBASE_BASE}${DATA_PATH}${path}.json`,{
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data)
+  });
+  if(!res.ok) throw new Error("Firebase POST failed: "+res.status);
+  return res.json();
+}
+async function fbDelete(path){
+  const res = await fetch(`${FIREBASE_BASE}${DATA_PATH}${path}.json`,{method:"DELETE"});
+  if(!res.ok) throw new Error("Firebase DELETE failed: "+res.status);
+  return res.json();
+}
+
+async function loadAll(){
+  try{
+    const [standards, members] = await Promise.all([fbGet("/standards"), fbGet("/members")]);
+    state.standards = {...DEFAULT_STANDARDS, ...(standards||{})};
+    state.members = members || {};
+    setConn(true);
+  }catch(e){
+    console.error(e);
+    setConn(false);
+    showToast("Couldn't reach the database — check connection.", true);
+  }
+  renderAll();
+}
+function setConn(ok){
+  document.getElementById("connDot").classList.toggle("off", !ok);
+  document.getElementById("connText").textContent = ok ? "Live" : "Offline";
+}
+
+/* ============ STATUS LOGIC ============ */
+function computeStatus(m){
+  if(m.overrideStatus) return m.overrideStatus;
+  const s = state.standards;
+  const missed = Number(m.missedCount)||0;
+  if(missed >= 3) return "crit";
+  if(missed === 2) return "warn";
+  if(missed === 1) return "attn";
+  const vs = Number(m.vsWeekly)||0;
+  const don = Number(m.donationsWeekly)||0;
+  const part = Number(m.participationPct)||0;
+  if(vs < s.vsMinWeekly || don < s.donMinWeekly || part < s.participationTarget) return "attn";
+  return "good";
+}
+const STATUS_LABEL = {good:"🟢 Good Standing", attn:"🟡 Attention", warn:"🟠 Warning/Probation", crit:"🔴 Critical/Review"};
+
+/* ============ RENDER ============ */
+function renderAll(){
+  renderDashboard();
+  renderMembers();
+  renderStandardsForm();
+}
+
+function renderDashboard(){
+  const list = Object.values(state.members);
+  const counts = {good:0, attn:0, warn:0, crit:0};
+  let vsSum=0, partSum=0;
+  list.forEach(m=>{
+    counts[computeStatus(m)]++;
+    vsSum += Number(m.vsWeekly)||0;
+    partSum += Number(m.participationPct)||0;
+  });
+  const total = list.length;
+  document.getElementById("statTotal").textContent = total;
+  document.getElementById("statGood").textContent = counts.good;
+  document.getElementById("statAttn").textContent = counts.attn;
+  document.getElementById("statWarn").textContent = counts.warn;
+  document.getElementById("statCrit").textContent = counts.crit;
+  document.getElementById("statAvgVS").textContent = total ? Math.round(vsSum/total).toLocaleString() : "0";
+  document.getElementById("statAvgPart").textContent = total ? Math.round(partSum/total)+"%" : "0%";
+
+  const track = document.getElementById("readinessTrack");
+  track.innerHTML = "";
+  const segs = [["good","--good"],["attn","--attn"],["warn","--warn"],["crit","--crit"]];
+  if(total===0){
+    track.innerHTML = `<div style="width:100%;background:#1A2029;"></div>`;
+  }else{
+    segs.forEach(([key,varName])=>{
+      const pct = (counts[key]/total*100);
+      if(pct<=0) return;
+      const div = document.createElement("div");
+      div.style.width = pct+"%";
+      div.style.background = `var(${varName})`;
+      track.appendChild(div);
+    });
+  }
+  document.getElementById("legendGood").textContent = counts.good;
+  document.getElementById("legendAttn").textContent = counts.attn;
+  document.getElementById("legendWarn").textContent = counts.warn;
+  document.getElementById("legendCrit").textContent = counts.crit;
+
+  const verdictEl = document.getElementById("readinessVerdict");
+  if(total===0){ verdictEl.textContent="NO DATA"; verdictEl.style.color="var(--dim)"; }
+  else if(counts.crit>0){ verdictEl.textContent="REVIEW REQUIRED"; verdictEl.style.color="var(--crit)"; }
+  else if(counts.warn>0){ verdictEl.textContent="NEEDS ATTENTION"; verdictEl.style.color="var(--warn)"; }
+  else if(counts.attn>0){ verdictEl.textContent="MOSTLY ON TRACK"; verdictEl.style.color="var(--attn)"; }
+  else { verdictEl.textContent="STANDARD MET"; verdictEl.style.color="var(--good)"; }
+
+  const flagged = list.filter(m=>["warn","crit"].includes(computeStatus(m)))
+    .sort((a,b)=> (computeStatus(b)==="crit"?1:0) - (computeStatus(a)==="crit"?1:0));
+  const wrap = document.getElementById("attentionList");
+  if(flagged.length===0){
+    wrap.innerHTML = `<div class="empty">No members currently flagged.</div>`;
+  }else{
+    wrap.innerHTML = `<table><thead><tr><th>Name</th><th>Rank</th><th>Missed</th><th>Status</th><th>Notes</th></tr></thead><tbody>
+      ${flagged.map(m=>`<tr class="member-row" data-id="${m.id}"><td>${esc(m.name)}</td><td>${esc(m.rank||"")}</td><td class="mono">${m.missedCount||0}</td><td>${statusBadge(computeStatus(m))}</td><td>${esc(m.notes||"")}</td></tr>`).join("")}
+    </tbody></table>`;
+    wrap.querySelectorAll("tr.member-row").forEach(tr=>tr.addEventListener("click",()=>openMemberModal(tr.dataset.id)));
+  }
+}
+
+function statusBadge(status){
+  const label = STATUS_LABEL[status] || status;
+  const emoji = label.split(" ")[0];
+  const text = label.slice(label.indexOf(" ")+1);
+  return `<span class="badge ${status}"><i></i>${text}</span>`;
+}
+
+function esc(str){
+  return String(str??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function renderMembers(){
+  const search = document.getElementById("memberSearch").value.trim().toLowerCase();
+  const statusFilter = document.getElementById("statusFilter").value;
+  let list = Object.values(state.members);
+  if(search) list = list.filter(m=>(m.name||"").toLowerCase().includes(search));
+  if(statusFilter) list = list.filter(m=>computeStatus(m)===statusFilter);
+
+  list.sort((a,b)=>{
+    let av, bv;
+    if(state.sortKey==="status"){ av=computeStatus(a); bv=computeStatus(b); }
+    else { av=a[state.sortKey]; bv=b[state.sortKey]; }
+    if(typeof av === "string" || typeof bv === "string"){
+      av = (av||"").toString().toLowerCase(); bv=(bv||"").toString().toLowerCase();
+      return av.localeCompare(bv) * state.sortDir;
+    }
+    return ((Number(av)||0) - (Number(bv)||0)) * state.sortDir;
+  });
+
+  document.querySelectorAll("#memberTable th[data-sort]").forEach(th=>{
+    th.classList.toggle("sorted", th.dataset.sort===state.sortKey);
+  });
+
+  const tbody = document.getElementById("memberTableBody");
+  if(list.length===0){
+    tbody.innerHTML = `<tr><td colspan="9" class="empty">No members match.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(m=>`
+    <tr class="member-row" data-id="${m.id}">
+      <td>${esc(m.name)}</td>
+      <td>${esc(m.rank||"")}</td>
+      <td class="mono">${(Number(m.power)||0).toLocaleString()}</td>
+      <td class="mono">${(Number(m.vsWeekly)||0).toLocaleString()}</td>
+      <td class="mono">${(Number(m.donationsWeekly)||0).toLocaleString()}</td>
+      <td class="mono">${Number(m.participationPct)||0}%</td>
+      <td class="mono">${Number(m.missedCount)||0}</td>
+      <td>${statusBadge(computeStatus(m))}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;">${esc(m.notes||"")}</td>
+    </tr>`).join("");
+  tbody.querySelectorAll("tr.member-row").forEach(tr=>tr.addEventListener("click",()=>openMemberModal(tr.dataset.id)));
+}
+
+function renderStandardsForm(){
+  const s = state.standards;
+  document.getElementById("std_vsMinDaily").value = s.vsMinDaily;
+  document.getElementById("std_vsMinWeekly").value = s.vsMinWeekly;
+  document.getElementById("std_vsTargetWeekly").value = s.vsTargetWeekly;
+  document.getElementById("std_vsStrongWeekly").value = s.vsStrongWeekly;
+  document.getElementById("std_donMinDaily").value = s.donMinDaily;
+  document.getElementById("std_donMinWeekly").value = s.donMinWeekly;
+  document.getElementById("std_participationTarget").value = s.participationTarget;
+}
+
+/* ============ NAV ============ */
+document.querySelectorAll("nav button").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+    document.getElementById("view-"+btn.dataset.view).classList.add("active");
+  });
+});
+
+/* ============ MEMBER MODAL ============ */
+const memberModal = document.getElementById("memberModalBackdrop");
+function openMemberModal(id){
+  state.editingId = id || null;
+  const m = id ? state.members[id] : null;
+  document.getElementById("memberModalTitle").textContent = m ? "Edit Member" : "Add Member";
+  document.getElementById("f_name").value = m?.name || "";
+  document.getElementById("f_rank").value = m?.rank || "R3";
+  document.getElementById("f_power").value = m?.power || "";
+  document.getElementById("f_vsWeekly").value = m?.vsWeekly || "";
+  document.getElementById("f_donationsWeekly").value = m?.donationsWeekly || "";
+  document.getElementById("f_participationPct").value = m?.participationPct ?? "";
+  document.getElementById("f_missedCount").value = m?.missedCount ?? 0;
+  document.getElementById("f_overrideStatus").value = m?.overrideStatus || "";
+  document.getElementById("f_notes").value = m?.notes || "";
+  document.getElementById("deleteMemberBtn").style.display = m ? "inline-block" : "none";
+  memberModal.classList.add("active");
+}
+function closeMemberModal(){ memberModal.classList.remove("active"); state.editingId=null; }
+document.getElementById("addMemberBtn").addEventListener("click",()=>openMemberModal(null));
+document.getElementById("memberModalClose").addEventListener("click", closeMemberModal);
+document.getElementById("memberCancelBtn").addEventListener("click", closeMemberModal);
+memberModal.addEventListener("click", e=>{ if(e.target===memberModal) closeMemberModal(); });
+
+document.getElementById("memberSaveBtn").addEventListener("click", async ()=>{
+  const name = document.getElementById("f_name").value.trim();
+  if(!name){ showToast("Name is required.", true); return; }
+  const data = {
+    name,
+    rank: document.getElementById("f_rank").value,
+    power: Number(document.getElementById("f_power").value)||0,
+    vsWeekly: Number(document.getElementById("f_vsWeekly").value)||0,
+    donationsWeekly: Number(document.getElementById("f_donationsWeekly").value)||0,
+    participationPct: Number(document.getElementById("f_participationPct").value)||0,
+    missedCount: Number(document.getElementById("f_missedCount").value)||0,
+    overrideStatus: document.getElementById("f_overrideStatus").value || null,
+    notes: document.getElementById("f_notes").value
+  };
+  try{
+    if(state.editingId){
+      data.id = state.editingId;
+      await fbPut(`/members/${state.editingId}`, data);
+      state.members[state.editingId] = data;
+    }else{
+      const res = await fbPost("/members", data);
+      data.id = res.name;
+      await fbPut(`/members/${res.name}/id`, res.name);
+      state.members[res.name] = data;
+    }
+    closeMemberModal();
+    renderAll();
+    showToast("Member saved.");
+  }catch(e){ console.error(e); showToast("Save failed — check connection.", true); }
+});
+
+document.getElementById("deleteMemberBtn").addEventListener("click", async ()=>{
+  if(!state.editingId) return;
+  if(!confirm("Delete this member? This cannot be undone.")) return;
+  try{
+    await fbDelete(`/members/${state.editingId}`);
+    delete state.members[state.editingId];
+    closeMemberModal();
+    renderAll();
+    showToast("Member deleted.");
+  }catch(e){ console.error(e); showToast("Delete failed.", true); }
+});
+
+/* ============ MEMBER TABLE INTERACTIONS ============ */
+document.getElementById("memberSearch").addEventListener("input", renderMembers);
+document.getElementById("statusFilter").addEventListener("change", renderMembers);
+document.querySelectorAll("#memberTable th[data-sort]").forEach(th=>{
+  th.addEventListener("click", ()=>{
+    const key = th.dataset.sort;
+    if(state.sortKey===key) state.sortDir *= -1;
+    else { state.sortKey = key; state.sortDir = 1; }
+    renderMembers();
+  });
+});
+
+/* ============ STANDARDS ============ */
+document.getElementById("saveStandardsBtn").addEventListener("click", async ()=>{
+  const s = {
+    vsMinDaily: Number(document.getElementById("std_vsMinDaily").value)||0,
+    vsMinWeekly: Number(document.getElementById("std_vsMinWeekly").value)||0,
+    vsTargetWeekly: Number(document.getElementById("std_vsTargetWeekly").value)||0,
+    vsStrongWeekly: Number(document.getElementById("std_vsStrongWeekly").value)||0,
+    donMinDaily: Number(document.getElementById("std_donMinDaily").value)||0,
+    donMinWeekly: Number(document.getElementById("std_donMinWeekly").value)||0,
+    participationTarget: Number(document.getElementById("std_participationTarget").value)||0
+  };
+  try{
+    await fbPut("/standards", s);
+    state.standards = s;
+    renderAll();
+    showToast("Standards saved — every member re-scored.");
+  }catch(e){ console.error(e); showToast("Save failed.", true); }
+});
+
+/* ============ CSV EXPORT ============ */
+document.getElementById("exportCsvBtn").addEventListener("click", ()=>{
+  const cols = ["name","rank","power","vsWeekly","donationsWeekly","participationPct","missedCount","status","notes"];
+  const rows = Object.values(state.members).map(m=>{
+    const row = {...m, status: computeStatus(m)};
+    return cols.map(c=> csvEscape(row[c] ?? "")).join(",");
+  });
+  const csv = [cols.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `nblv-roster-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+function csvEscape(v){
+  v = String(v);
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g,'""')}"` : v;
+}
+
+/* ============ CSV IMPORT ============ */
+const csvModal = document.getElementById("csvModalBackdrop");
+document.getElementById("importCsvBtn").addEventListener("click", ()=> document.getElementById("csvFileInput").click());
+document.getElementById("csvFileInput").addEventListener("change", (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  Papa.parse(file, {
+    header:true, skipEmptyLines:true,
+    complete: (results)=>{ prepareCsvPreview(results.data); e.target.value=""; }
+  });
+});
+
+function prepareCsvPreview(rows){
+  const byNameLower = {};
+  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").toLowerCase()] = m );
+
+  const parsed = rows.map(r=>{
+    const name = (r.name||"").trim();
+    const errors = [];
+    if(!name) errors.push("missing name");
+    ["power","vsWeekly","donationsWeekly","participationPct","missedCount"].forEach(f=>{
+      if(r[f]!==undefined && r[f]!=="" && isNaN(Number(r[f]))) errors.push(`${f} not numeric`);
+    });
+    const existing = byNameLower[name.toLowerCase()];
+    return {
+      raw:r, name, errors,
+      kind: errors.length ? "error" : (existing ? "change" : "new"),
+      existingId: existing?.id || null
+    };
+  });
+  state.csvParsedRows = parsed;
+
+  const wrap = document.getElementById("csvPreviewWrap");
+  const valid = parsed.filter(p=>p.kind!=="error");
+  const newCount = parsed.filter(p=>p.kind==="new").length;
+  const changeCount = parsed.filter(p=>p.kind==="change").length;
+  const errCount = parsed.filter(p=>p.kind==="error").length;
+  document.getElementById("csvSummary").textContent = `${newCount} new · ${changeCount} updates · ${errCount} errors (skipped)`;
+
+  wrap.innerHTML = `<table><thead><tr><th></th><th>Name</th><th>Rank</th><th>Power</th><th>VS</th><th>Donations</th><th>Part %</th><th>Missed</th><th>Notes</th></tr></thead><tbody>
+    ${parsed.map(p=>{
+      const cls = p.kind==="new" ? "csv-row-new" : p.kind==="change" ? "csv-row-change" : "csv-row-error";
+      const tag = p.kind==="new" ? "NEW" : p.kind==="change" ? "UPD" : "ERR";
+      const r = p.raw;
+      return `<tr class="${cls}"><td class="mono">${tag}</td><td>${esc(p.name||"(blank)")}</td><td>${esc(r.rank||"")}</td><td>${esc(r.power||"")}</td><td>${esc(r.vsWeekly||"")}</td><td>${esc(r.donationsWeekly||"")}</td><td>${esc(r.participationPct||"")}</td><td>${esc(r.missedCount||"")}</td><td>${esc(r.notes||"")}${p.errors.length?` — ${esc(p.errors.join(", "))}`:""}</td></tr>`;
+    }).join("")}
+  </tbody></table>`;
+  document.getElementById("csvConfirmBtn").disabled = valid.length===0;
+  csvModal.classList.add("active");
+}
+
+document.getElementById("csvModalClose").addEventListener("click", ()=>csvModal.classList.remove("active"));
+document.getElementById("csvCancelBtn").addEventListener("click", ()=>csvModal.classList.remove("active"));
+csvModal.addEventListener("click", e=>{ if(e.target===csvModal) csvModal.classList.remove("active"); });
+
+document.getElementById("csvConfirmBtn").addEventListener("click", async ()=>{
+  const valid = state.csvParsedRows.filter(p=>p.kind!=="error");
+  let ok=0, fail=0;
+  for(const p of valid){
+    const r = p.raw;
+    const data = {
+      name: p.name,
+      rank: r.rank || (p.existingId ? state.members[p.existingId].rank : "R3"),
+      power: Number(r.power)||0,
+      vsWeekly: Number(r.vsWeekly)||0,
+      donationsWeekly: Number(r.donationsWeekly)||0,
+      participationPct: Number(r.participationPct)||0,
+      missedCount: Number(r.missedCount)||0,
+      overrideStatus: p.existingId ? (state.members[p.existingId].overrideStatus||null) : null,
+      notes: r.notes || (p.existingId ? state.members[p.existingId].notes || "" : "")
+    };
+    try{
+      if(p.existingId){
+        data.id = p.existingId;
+        await fbPut(`/members/${p.existingId}`, data);
+        state.members[p.existingId] = data;
+      }else{
+        const res = await fbPost("/members", data);
+        data.id = res.name;
+        await fbPut(`/members/${res.name}/id`, res.name);
+        state.members[res.name] = data;
+      }
+      ok++;
+    }catch(e){ console.error(e); fail++; }
+  }
+  csvModal.classList.remove("active");
+  renderAll();
+  showToast(fail ? `Imported ${ok}, ${fail} failed.` : `Imported ${ok} members.`, fail>0);
+});
+
+/* ============ TOAST ============ */
+let toastTimer;
+function showToast(msg, isErr){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.toggle("err", !!isErr);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove("show"), 3200);
+}
+
+/* ============ INIT ============ */
+loadAll();
+</script>
+</body>
+</html>
