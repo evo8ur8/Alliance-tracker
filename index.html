@@ -224,6 +224,7 @@
 <nav>
   <button class="active" data-view="dashboard">Dashboard</button>
   <button data-view="members">Members</button>
+  <button data-view="reports">Reports</button>
   <button data-view="standards">Standards</button>
 </nav>
 
@@ -296,6 +297,38 @@
           <tbody id="memberTableBody"></tbody>
         </table>
       </div>
+    </section>
+  </div>
+
+  <!-- REPORTS -->
+  <div class="view" id="view-reports">
+    <section class="block">
+      <h3>Import Report <span style="font-weight:400;text-transform:none;font-size:11.5px;color:var(--dim);">— paste Screenshot Processor batch code</span></h3>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:10px;">Paste the batch copy-code below. Names that don't match an existing member will offer to create one, so nothing gets lost.</p>
+      <textarea id="reportPasteInput" placeholder='[ { "category": "contribution", "name": "...", "date": "2026-08-18", "eventName": "Alliance Duel (VS) — Daily", "metricLabel": "Points", "metricValue": 21106040 } ]' style="width:100%;min-height:110px;background:var(--panel-2);border:1px solid var(--hairline);color:var(--text);border-radius:6px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:12px;"></textarea>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:10px;">
+        <button class="btn primary" id="previewReportBtn">Preview Import</button>
+      </div>
+      <div class="csv-preview" id="reportPreviewWrap" style="display:none;margin-top:12px;"></div>
+      <div class="modal-actions" id="reportConfirmWrap" style="display:none;">
+        <span class="mono" id="reportSummary" style="margin-right:auto;color:var(--muted);font-size:12px;"></span>
+        <button class="btn" id="reportCancelBtn">Cancel</button>
+        <button class="btn primary" id="reportConfirmBtn">Confirm Import</button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h3 style="justify-content:flex-start;gap:12px;">Leaderboard
+        <select class="filter" id="leaderboardEventSelect" style="text-transform:none;font-weight:500;font-size:12.5px;"></select>
+      </h3>
+      <p style="color:var(--muted);font-size:11.5px;margin-bottom:10px;margin-top:-4px;">Showing this week (<span class="mono" id="leaderboardWeekLabel">—</span>). Every column is labeled so this reads on its own, without you in the room.</p>
+      <div id="leaderboardWrap" class="table-wrap"><div class="empty">No reports imported yet.</div></div>
+    </section>
+
+    <section class="block">
+      <h3>Week Management</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px;">Current week: <span class="mono" id="currentWeekLabel">—</span>. Closing an event's week rolls its daily entries into each member's weekly total (already reflected on the Members tab) and clears the daily detail so next week starts clean. The weekly totals themselves are not affected.</p>
+      <div id="weekEventsWrap" class="table-wrap"><div class="empty">No events with daily data yet.</div></div>
     </section>
   </div>
 
@@ -408,14 +441,42 @@ const DEFAULT_STANDARDS = {
   participationTarget: 80
 };
 
+// Which member field a rolled-up weekly total writes to, keyed by a slugified
+// event name (suffix like "— Daily" / "— Weekly" stripped before slugging).
+const EVENT_FIELD_MAP = {
+  "alliance-duel-vs": "vsWeekly",
+  "tech-donations": "donationsWeekly"
+};
+
 let state = {
   standards: {...DEFAULT_STANDARDS},
   members: {},       // id -> member
+  reports: {},        // eventKey -> date -> memberId -> entry
   sortKey: "name",
   sortDir: 1,
   editingId: null,
-  csvParsedRows: []
+  csvParsedRows: [],
+  reportParsedRows: [],
+  leaderboardEvent: null
 };
+
+function slugifyEvent(eventName){
+  return (eventName||"")
+    .replace(/—.*$/,"")           // strip " — Daily" / " — Weekly" suffix
+    .trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/(^-|-$)/g,"");
+}
+function getWeekRange(dateStr){
+  const d = new Date(dateStr+"T00:00:00Z");
+  const day = d.getUTCDay();                 // 0=Sun..6=Sat
+  const diffToMonday = (day===0 ? -6 : 1-day);
+  const monday = new Date(d); monday.setUTCDate(d.getUTCDate()+diffToMonday);
+  const sunday = new Date(monday); sunday.setUTCDate(monday.getUTCDate()+6);
+  return {start: monday.toISOString().slice(0,10), end: sunday.toISOString().slice(0,10)};
+}
+function inRange(dateStr, range){ return dateStr >= range.start && dateStr <= range.end; }
+const CURRENT_WEEK = getWeekRange(new Date().toISOString().slice(0,10));
 
 /* ============ FIREBASE (REST, no SDK/auth) ============ */
 async function fbGet(path){
@@ -445,9 +506,10 @@ async function fbDelete(path){
 
 async function loadAll(){
   try{
-    const [standards, members] = await Promise.all([fbGet("/standards"), fbGet("/members")]);
+    const [standards, members, reports] = await Promise.all([fbGet("/standards"), fbGet("/members"), fbGet("/reports")]);
     state.standards = {...DEFAULT_STANDARDS, ...(standards||{})};
     state.members = members || {};
+    state.reports = reports || {};
     setConn(true);
   }catch(e){
     console.error(e);
@@ -482,6 +544,9 @@ function renderAll(){
   renderDashboard();
   renderMembers();
   renderStandardsForm();
+  renderLeaderboardOptions();
+  renderLeaderboard();
+  renderWeekManagement();
 }
 
 function renderDashboard(){
@@ -823,6 +888,203 @@ document.getElementById("csvConfirmBtn").addEventListener("click", async ()=>{
   renderAll();
   showToast(fail ? `Imported ${ok}, ${fail} failed.` : `Imported ${ok} members.`, fail>0);
 });
+
+/* ============ REPORT IMPORT (Screenshot Processor batch code) ============ */
+document.getElementById("previewReportBtn").addEventListener("click", ()=>{
+  const raw = document.getElementById("reportPasteInput").value.trim();
+  if(!raw){ showToast("Paste the batch code first.", true); return; }
+  let arr;
+  try{ arr = JSON.parse(raw); if(!Array.isArray(arr)) throw new Error("not an array"); }
+  catch(e){ showToast("Couldn't parse that as JSON — check it's the full batch array.", true); return; }
+
+  const byNameLower = {};
+  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").toLowerCase()] = m );
+
+  const parsed = arr.map(r=>{
+    const errors = [];
+    if(!r.name) errors.push("missing name");
+    if(!r.date || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) errors.push("bad date");
+    if(r.metricValue===undefined || isNaN(Number(r.metricValue))) errors.push("metricValue not numeric");
+    if(!r.eventName) errors.push("missing eventName");
+    const existing = r.name ? byNameLower[r.name.toLowerCase()] : null;
+    return {
+      raw:r, errors,
+      kind: errors.length ? "error" : (existing ? "matched" : "new"),
+      existingId: existing?.id || null
+    };
+  });
+  state.reportParsedRows = parsed;
+
+  const newCount = parsed.filter(p=>p.kind==="new").length;
+  const matchCount = parsed.filter(p=>p.kind==="matched").length;
+  const errCount = parsed.filter(p=>p.kind==="error").length;
+  document.getElementById("reportSummary").textContent = `${matchCount} matched · ${newCount} new members · ${errCount} errors (skipped)`;
+
+  const wrap = document.getElementById("reportPreviewWrap");
+  wrap.style.display = "block";
+  wrap.innerHTML = `<table><thead><tr><th></th><th>Name</th><th>Date</th><th>Event</th><th>Metric</th><th>Value</th></tr></thead><tbody>
+    ${parsed.map(p=>{
+      const cls = p.kind==="new" ? "csv-row-new" : p.kind==="matched" ? "" : "csv-row-error";
+      const tag = p.kind==="new" ? "NEW MEMBER" : p.kind==="matched" ? "OK" : "ERR";
+      const r = p.raw;
+      return `<tr class="${cls}"><td class="mono">${tag}</td><td>${esc(r.name||"(blank)")}</td><td class="mono">${esc(r.date||"")}</td><td>${esc(r.eventName||"")}</td><td>${esc(r.metricLabel||"")}</td><td class="mono">${(Number(r.metricValue)||0).toLocaleString()}${p.errors.length?` — ${esc(p.errors.join(", "))}`:""}</td></tr>`;
+    }).join("")}
+  </tbody></table>`;
+  document.getElementById("reportConfirmWrap").style.display = "flex";
+  document.getElementById("reportConfirmBtn").disabled = (matchCount+newCount)===0;
+});
+
+document.getElementById("reportCancelBtn").addEventListener("click", ()=>{
+  document.getElementById("reportPreviewWrap").style.display="none";
+  document.getElementById("reportConfirmWrap").style.display="none";
+  document.getElementById("reportPasteInput").value="";
+});
+
+document.getElementById("reportConfirmBtn").addEventListener("click", async ()=>{
+  const rows = state.reportParsedRows.filter(p=>p.kind!=="error");
+  const touchedEventKeys = new Set();
+  const touchedMembers = new Set();
+  let ok=0, fail=0;
+  for(const p of rows){
+    const r = p.raw;
+    try{
+      let memberId = p.existingId;
+      if(!memberId){
+        const newMember = { name:r.name, rank:"R3", power:0, vsWeekly:0, donationsWeekly:0, participationPct:0, missedCount:0, overrideStatus:null, notes:"" };
+        const res = await fbPost("/members", newMember);
+        memberId = res.name;
+        newMember.id = memberId;
+        await fbPut(`/members/${memberId}/id`, memberId);
+        state.members[memberId] = newMember;
+      }
+      const eventKey = slugifyEvent(r.eventName);
+      await fbPut(`/reports/${eventKey}/${r.date}/${memberId}`, {
+        name: r.name, category: r.category||"", eventName: r.eventName,
+        metricLabel: r.metricLabel||"", metricValue: Number(r.metricValue)||0
+      });
+      state.reports[eventKey] = state.reports[eventKey] || {};
+      state.reports[eventKey][r.date] = state.reports[eventKey][r.date] || {};
+      state.reports[eventKey][r.date][memberId] = {
+        name: r.name, category: r.category||"", eventName: r.eventName,
+        metricLabel: r.metricLabel||"", metricValue: Number(r.metricValue)||0
+      };
+      touchedEventKeys.add(eventKey);
+      touchedMembers.add(memberId);
+      ok++;
+    }catch(e){ console.error(e); fail++; }
+  }
+
+  // Roll this week's daily entries into each touched member's weekly total,
+  // for event keys we know how to map onto a member field.
+  for(const eventKey of touchedEventKeys){
+    const field = EVENT_FIELD_MAP[eventKey];
+    if(!field) continue;
+    const byMember = {};
+    Object.entries(state.reports[eventKey]||{}).forEach(([date, entries])=>{
+      if(!inRange(date, CURRENT_WEEK)) return;
+      Object.entries(entries).forEach(([memberId, entry])=>{
+        byMember[memberId] = (byMember[memberId]||0) + (Number(entry.metricValue)||0);
+      });
+    });
+    for(const memberId of Object.keys(byMember)){
+      if(!state.members[memberId]) continue;
+      state.members[memberId][field] = byMember[memberId];
+      try{ await fbPut(`/members/${memberId}/${field}`, byMember[memberId]); }
+      catch(e){ console.error(e); }
+    }
+  }
+
+  document.getElementById("reportPreviewWrap").style.display="none";
+  document.getElementById("reportConfirmWrap").style.display="none";
+  document.getElementById("reportPasteInput").value="";
+  renderAll();
+  showToast(fail ? `Imported ${ok}, ${fail} failed.` : `Imported ${ok} entries — weekly totals updated.`, fail>0);
+});
+
+/* ============ LEADERBOARD ============ */
+function renderLeaderboardOptions(){
+  const sel = document.getElementById("leaderboardEventSelect");
+  const keys = Object.keys(state.reports);
+  const prev = state.leaderboardEvent;
+  sel.innerHTML = keys.length ? keys.map(k=>{
+    const sample = Object.values(Object.values(state.reports[k])[0]||{})[0];
+    return `<option value="${k}">${esc(sample?.eventName?.replace(/\s*—.*$/,"") || k)}</option>`;
+  }).join("") : `<option value="">No events yet</option>`;
+  if(prev && keys.includes(prev)) sel.value = prev;
+  state.leaderboardEvent = sel.value || null;
+}
+document.getElementById("leaderboardEventSelect").addEventListener("change",(e)=>{
+  state.leaderboardEvent = e.target.value || null;
+  renderLeaderboard();
+});
+
+function renderLeaderboard(){
+  document.getElementById("leaderboardWeekLabel").textContent = `${CURRENT_WEEK.start} → ${CURRENT_WEEK.end}`;
+  const wrap = document.getElementById("leaderboardWrap");
+  const eventKey = state.leaderboardEvent;
+  if(!eventKey || !state.reports[eventKey]){
+    wrap.innerHTML = `<div class="empty">No reports imported yet.</div>`;
+    return;
+  }
+  const byMember = {}; // memberId -> {name, total, metricLabel, eventName}
+  Object.entries(state.reports[eventKey]).forEach(([date, entries])=>{
+    if(!inRange(date, CURRENT_WEEK)) return;
+    Object.entries(entries).forEach(([memberId, entry])=>{
+      if(!byMember[memberId]) byMember[memberId] = { name: entry.name, total:0, metricLabel: entry.metricLabel, eventName: entry.eventName };
+      byMember[memberId].total += Number(entry.metricValue)||0;
+    });
+  });
+  const rows = Object.values(byMember).sort((a,b)=>b.total-a.total);
+  if(rows.length===0){
+    wrap.innerHTML = `<div class="empty">No entries for this event this week.</div>`;
+    return;
+  }
+  const label = rows[0].metricLabel || "Value";
+  wrap.innerHTML = `<table><thead><tr><th>Rank</th><th>Name</th><th>Weekly ${esc(label)} Total</th></tr></thead><tbody>
+    ${rows.map((r,i)=>`<tr><td class="mono">#${i+1}</td><td>${esc(r.name)}</td><td class="mono">${r.total.toLocaleString()} ${esc(label)}</td></tr>`).join("")}
+  </tbody></table>`;
+}
+
+/* ============ WEEK MANAGEMENT ============ */
+function renderWeekManagement(){
+  document.getElementById("currentWeekLabel").textContent = `${CURRENT_WEEK.start} → ${CURRENT_WEEK.end}`;
+  const wrap = document.getElementById("weekEventsWrap");
+  const keys = Object.keys(state.reports);
+  if(keys.length===0){ wrap.innerHTML = `<div class="empty">No events with daily data yet.</div>`; return; }
+  wrap.innerHTML = `<table><thead><tr><th>Event</th><th>Days in this week</th><th>Members reported</th><th></th></tr></thead><tbody>
+    ${keys.map(k=>{
+      const datesInWeek = Object.keys(state.reports[k]).filter(d=>inRange(d, CURRENT_WEEK));
+      const memberSet = new Set();
+      datesInWeek.forEach(d=>Object.keys(state.reports[k][d]).forEach(m=>memberSet.add(m)));
+      const sample = Object.values(Object.values(state.reports[k])[0]||{})[0];
+      const label = sample?.eventName?.replace(/\s*—.*$/,"") || k;
+      return `<tr><td>${esc(label)}</td><td class="mono">${datesInWeek.length}</td><td class="mono">${memberSet.size}</td>
+        <td><button class="btn danger close-week-btn" data-key="${k}" ${datesInWeek.length===0?"disabled":""}>Close Week</button></td></tr>`;
+    }).join("")}
+  </tbody></table>`;
+  wrap.querySelectorAll(".close-week-btn").forEach(btn=>{
+    btn.addEventListener("click", ()=>closeWeek(btn.dataset.key));
+  });
+}
+
+async function closeWeek(eventKey){
+  const field = EVENT_FIELD_MAP[eventKey];
+  const note = field ? "" : " (this event doesn't roll into a member field yet, but its daily detail will still be archived and cleared)";
+  if(!confirm(`Close this week for "${eventKey}"? Daily entries for ${CURRENT_WEEK.start} → ${CURRENT_WEEK.end} will be archived and cleared. Member weekly totals already reflect this data and won't change.${note}`)) return;
+  const datesInWeek = Object.keys(state.reports[eventKey]||{}).filter(d=>inRange(d, CURRENT_WEEK));
+  try{
+    const archive = {};
+    datesInWeek.forEach(d=> archive[d] = state.reports[eventKey][d] );
+    await fbPut(`/weekArchive/${eventKey}/${CURRENT_WEEK.start}`, archive);
+    for(const d of datesInWeek){
+      await fbDelete(`/reports/${eventKey}/${d}`);
+      delete state.reports[eventKey][d];
+    }
+    if(Object.keys(state.reports[eventKey]).length===0) delete state.reports[eventKey];
+    renderAll();
+    showToast("Week closed and archived.");
+  }catch(e){ console.error(e); showToast("Couldn't close the week — check connection.", true); }
+}
 
 /* ============ TOAST ============ */
 let toastTimer;
