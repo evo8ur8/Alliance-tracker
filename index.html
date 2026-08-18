@@ -335,10 +335,33 @@
           <tbody id="dsTableBody"></tbody>
         </table>
       </div>
-      <div class="modal-actions" style="justify-content:space-between;margin-top:10px;">
+      <div class="modal-actions" style="justify-content:space-between;margin-top:10px;flex-wrap:wrap;">
         <span class="mono" id="dsSummary" style="color:var(--muted);font-size:12px;"></span>
-        <button class="btn primary" id="dsSaveBtn">Save Desert Storm</button>
+        <span style="display:flex;gap:8px;">
+          <button class="btn" id="dsTemplateBtn">Download Template</button>
+          <button class="btn" id="dsImportBtn">Import CSV</button>
+          <input type="file" id="dsCsvFileInput" accept=".csv">
+          <button class="btn primary" id="dsSaveBtn">Save Desert Storm</button>
+        </span>
       </div>
+      <div class="csv-preview" id="dsPreviewWrap" style="display:none;margin-top:12px;"></div>
+      <div class="modal-actions" id="dsConfirmWrap" style="display:none;">
+        <span class="mono" id="dsImportSummary" style="margin-right:auto;color:var(--muted);font-size:12px;"></span>
+        <button class="btn" id="dsImportCancelBtn">Cancel</button>
+        <button class="btn primary" id="dsImportConfirmBtn">Confirm Import</button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h3>Clear / Delete Data</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px;">Undo a bad or repeated import. Pick an event and a date to see exactly what's stored, then delete just that day — or wipe the whole event if you're clearing out test data.</p>
+      <div class="toolbar" style="margin-bottom:10px;">
+        <select class="filter" id="clearEventSelect"></select>
+        <select class="filter" id="clearDateSelect"></select>
+        <button class="btn danger" id="clearDayBtn">Delete This Day</button>
+        <button class="btn danger" id="clearEventBtn">Delete Entire Event</button>
+      </div>
+      <div id="clearPreviewWrap" class="table-wrap"><div class="empty">Pick an event and date above to preview what would be deleted.</div></div>
     </section>
 
     <section class="block">
@@ -565,6 +588,7 @@ function renderAll(){
   renderLeaderboard();
   renderWeekManagement();
   renderDesertStorm();
+  renderClearControls();
 }
 
 function renderDashboard(){
@@ -842,7 +866,7 @@ document.getElementById("csvFileInput").addEventListener("change", (e)=>{
 
 function prepareCsvPreview(rows){
   const byNameLower = {};
-  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").toLowerCase()] = m );
+  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").trim().toLowerCase()] = m );
 
   const parsed = rows.map(r=>{
     const name = (r.name||"").trim();
@@ -927,17 +951,18 @@ document.getElementById("previewReportBtn").addEventListener("click", ()=>{
   catch(e){ showToast("Couldn't parse that as JSON — check it's the full batch array.", true); return; }
 
   const byNameLower = {};
-  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").toLowerCase()] = m );
+  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").trim().toLowerCase()] = m );
 
   const parsed = arr.map(r=>{
     const errors = [];
-    if(!r.name) errors.push("missing name");
+    const trimmedName = (r.name||"").trim();
+    if(!trimmedName) errors.push("missing name");
     if(!r.date || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) errors.push("bad date");
     if(r.metricValue===undefined || isNaN(Number(r.metricValue))) errors.push("metricValue not numeric");
     if(!r.eventName) errors.push("missing eventName");
-    const existing = r.name ? byNameLower[r.name.toLowerCase()] : null;
+    const existing = trimmedName ? byNameLower[trimmedName.toLowerCase()] : null;
     return {
-      raw:r, errors,
+      raw:{...r, name: trimmedName}, errors,
       kind: errors.length ? "error" : (existing ? "matched" : "new"),
       existingId: existing?.id || null
     };
@@ -1181,6 +1206,201 @@ document.getElementById("dsSaveBtn").addEventListener("click", async ()=>{
     renderAll();
     showToast("Desert Storm saved for "+state.dsDate+".");
   }catch(e){ console.error(e); showToast("Save failed — check connection.", true); }
+});
+
+document.getElementById("dsTemplateBtn").addEventListener("click", ()=>{
+  const cols = ["name","team","status"];
+  const example = ["ExampleName","A","participated"];
+  const csv = [cols.join(","), example.join(","),
+    "# status accepts: participated / no-show / excused / not-assigned  (yes/no also work)"].join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "nblv-desert-storm-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+function normalizeDsStatus(raw){
+  const v = (raw||"").trim().toLowerCase();
+  if(["yes","y","participated","present","p"].includes(v)) return "participated";
+  if(["no","n","no-show","noshow","absent","a"].includes(v)) return "no-show";
+  if(["excused","excuse","ex"].includes(v)) return "excused";
+  if(["","na","n/a","not assigned","not-assigned","unassigned"].includes(v)) return "not-assigned";
+  return null; // unrecognized
+}
+
+document.getElementById("dsImportBtn").addEventListener("click", ()=> document.getElementById("dsCsvFileInput").click());
+document.getElementById("dsCsvFileInput").addEventListener("change",(e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  Papa.parse(file, {
+    header:true, skipEmptyLines:true,
+    complete: (results)=>{ prepareDsPreview(results.data); e.target.value=""; }
+  });
+});
+
+function prepareDsPreview(rows){
+  const byNameLower = {};
+  Object.values(state.members).forEach(m=> byNameLower[(m.name||"").trim().toLowerCase()] = m );
+
+  const parsed = rows.map(r=>{
+    const name = (r.name||"").trim();
+    const team = (r.team||"").trim();
+    const statusKey = normalizeDsStatus(r.status ?? r.availability);
+    const errors = [];
+    if(!name) errors.push("missing name");
+    if(statusKey===null) errors.push("unrecognized status");
+    const existing = name ? byNameLower[name.toLowerCase()] : null;
+    return {
+      name, team, statusKey, errors,
+      kind: errors.length ? "error" : (existing ? "matched" : "new"),
+      existingId: existing?.id || null
+    };
+  });
+  state.dsParsedRows = parsed;
+
+  const newCount = parsed.filter(p=>p.kind==="new").length;
+  const matchCount = parsed.filter(p=>p.kind==="matched").length;
+  const errCount = parsed.filter(p=>p.kind==="error").length;
+  document.getElementById("dsImportSummary").textContent = `${matchCount} matched · ${newCount} new members · ${errCount} errors (skipped) — target date ${state.dsDate}`;
+
+  const wrap = document.getElementById("dsPreviewWrap");
+  wrap.style.display = "block";
+  wrap.innerHTML = `<table><thead><tr><th></th><th>Name</th><th>Team</th><th>Status</th></tr></thead><tbody>
+    ${parsed.map(p=>{
+      const cls = p.kind==="new" ? "csv-row-new" : p.kind==="matched" ? "" : "csv-row-error";
+      const tag = p.kind==="new" ? "NEW MEMBER" : p.kind==="matched" ? "OK" : "ERR";
+      const statusDisplay = p.statusKey ? `${DS_STATUS[p.statusKey].emoji} ${DS_STATUS[p.statusKey].label}` : "—";
+      return `<tr class="${cls}"><td class="mono">${tag}</td><td>${esc(p.name||"(blank)")}</td><td>${esc(p.team||"")}</td><td>${statusDisplay}${p.errors.length?` — ${esc(p.errors.join(", "))}`:""}</td></tr>`;
+    }).join("")}
+  </tbody></table>`;
+  document.getElementById("dsConfirmWrap").style.display = "flex";
+  document.getElementById("dsImportConfirmBtn").disabled = (matchCount+newCount)===0;
+}
+
+document.getElementById("dsImportCancelBtn").addEventListener("click", ()=>{
+  document.getElementById("dsPreviewWrap").style.display="none";
+  document.getElementById("dsConfirmWrap").style.display="none";
+});
+
+document.getElementById("dsImportConfirmBtn").addEventListener("click", async ()=>{
+  const rows = (state.dsParsedRows||[]).filter(p=>p.kind!=="error");
+  const payload = {};
+  let ok=0, fail=0;
+  for(const p of rows){
+    try{
+      let memberId = p.existingId;
+      if(!memberId){
+        const newMember = { name:p.name, rank:"R3", power:0, vsWeekly:0, donationsWeekly:0, participationPct:0, missedCount:0, overrideStatus:null, notes:"" };
+        const res = await fbPost("/members", newMember);
+        memberId = res.name;
+        newMember.id = memberId;
+        await fbPut(`/members/${memberId}/id`, memberId);
+        state.members[memberId] = newMember;
+      }
+      payload[memberId] = { name: p.name, team: p.team, status: p.statusKey };
+      ok++;
+    }catch(e){ console.error(e); fail++; }
+  }
+  try{
+    // Merge with anything already saved for this date rather than clobbering it.
+    const existingForDate = (state.reports["desert-storm"]||{})[state.dsDate] || {};
+    const merged = {...existingForDate, ...payload};
+    await fbPut(`/reports/desert-storm/${state.dsDate}`, merged);
+    state.reports["desert-storm"] = state.reports["desert-storm"] || {};
+    state.reports["desert-storm"][state.dsDate] = merged;
+  }catch(e){ console.error(e); fail++; }
+
+  document.getElementById("dsPreviewWrap").style.display="none";
+  document.getElementById("dsConfirmWrap").style.display="none";
+  renderAll();
+  showToast(fail ? `Imported ${ok}, ${fail} failed.` : `Imported ${ok} rows into ${state.dsDate}.`, fail>0);
+});
+
+/* ============ CLEAR / DELETE DATA ============ */
+async function recomputeRollup(eventKey){
+  const field = EVENT_FIELD_MAP[eventKey];
+  if(!field) return;
+  const byMember = {};
+  Object.entries(state.reports[eventKey]||{}).forEach(([date, entries])=>{
+    if(!inRange(date, CURRENT_WEEK)) return;
+    Object.entries(entries).forEach(([memberId, entry])=>{
+      byMember[memberId] = (byMember[memberId]||0) + (Number(entry.metricValue)||0);
+    });
+  });
+  // Any member who no longer has entries this week for this event resets to 0.
+  const touched = new Set(Object.keys(byMember));
+  Object.values(state.members).forEach(m=>{
+    if(state.reports[eventKey] === undefined && field in m){ /* event fully removed below */ }
+  });
+  for(const memberId of Object.keys(state.members)){
+    const total = byMember[memberId] || 0;
+    if(state.members[memberId][field] !== total){
+      state.members[memberId][field] = total;
+      try{ await fbPut(`/members/${memberId}/${field}`, total); }catch(e){ console.error(e); }
+    }
+  }
+}
+
+function renderClearControls(){
+  const eventSel = document.getElementById("clearEventSelect");
+  const keys = Object.keys(state.reports);
+  const prevEvent = eventSel.value;
+  eventSel.innerHTML = keys.length ? keys.map(k=>{
+    const sample = Object.values(Object.values(state.reports[k])[0]||{})[0];
+    const label = sample?.eventName?.replace(/\s*—.*$/,"") || k;
+    return `<option value="${k}">${esc(label)}</option>`;
+  }).join("") : `<option value="">No data yet</option>`;
+  if(keys.includes(prevEvent)) eventSel.value = prevEvent;
+  renderClearDates();
+}
+function renderClearDates(){
+  const eventKey = document.getElementById("clearEventSelect").value;
+  const dateSel = document.getElementById("clearDateSelect");
+  const dates = eventKey && state.reports[eventKey] ? Object.keys(state.reports[eventKey]).sort().reverse() : [];
+  dateSel.innerHTML = dates.length ? dates.map(d=>`<option value="${d}">${d}</option>`).join("") : `<option value="">No dates</option>`;
+  renderClearPreview();
+}
+function renderClearPreview(){
+  const eventKey = document.getElementById("clearEventSelect").value;
+  const date = document.getElementById("clearDateSelect").value;
+  const wrap = document.getElementById("clearPreviewWrap");
+  const entries = eventKey && date ? (state.reports[eventKey]||{})[date] : null;
+  if(!entries){ wrap.innerHTML = `<div class="empty">Pick an event and date above to preview what would be deleted.</div>`; return; }
+  const rows = Object.values(entries);
+  wrap.innerHTML = `<table><thead><tr><th>Name</th><th>Metric</th><th>Value</th></tr></thead><tbody>
+    ${rows.map(e=>`<tr><td>${esc(e.name)}</td><td>${esc(e.metricLabel||e.status||"")}</td><td class="mono">${e.metricValue!==undefined?Number(e.metricValue).toLocaleString():esc(e.team||"")}</td></tr>`).join("")}
+  </tbody></table>`;
+}
+document.getElementById("clearEventSelect").addEventListener("change", renderClearDates);
+document.getElementById("clearDateSelect").addEventListener("change", renderClearPreview);
+
+document.getElementById("clearDayBtn").addEventListener("click", async ()=>{
+  const eventKey = document.getElementById("clearEventSelect").value;
+  const date = document.getElementById("clearDateSelect").value;
+  if(!eventKey || !date) return;
+  if(!confirm(`Delete all entries for this event on ${date}? This can't be undone. Weekly totals will be recalculated automatically from what's left.`)) return;
+  try{
+    await fbDelete(`/reports/${eventKey}/${date}`);
+    delete state.reports[eventKey][date];
+    if(Object.keys(state.reports[eventKey]).length===0) delete state.reports[eventKey];
+    await recomputeRollup(eventKey);
+    renderAll();
+    showToast("Day deleted, totals updated.");
+  }catch(e){ console.error(e); showToast("Delete failed — check connection.", true); }
+});
+document.getElementById("clearEventBtn").addEventListener("click", async ()=>{
+  const eventKey = document.getElementById("clearEventSelect").value;
+  if(!eventKey) return;
+  if(!confirm(`Delete ALL stored data for this event across every date? This can't be undone. Weekly totals will reset to 0 for this event.`)) return;
+  try{
+    await fbDelete(`/reports/${eventKey}`);
+    delete state.reports[eventKey];
+    await recomputeRollup(eventKey);
+    renderAll();
+    showToast("Event data cleared.");
+  }catch(e){ console.error(e); showToast("Delete failed — check connection.", true); }
 });
 
 /* ============ TOAST ============ */
