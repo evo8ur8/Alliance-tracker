@@ -399,6 +399,14 @@
         Missed-count and status can always be manually overridden per member with a reason — see Members tab.
       </p>
     </section>
+    <section class="block" style="border-color:var(--crit);">
+      <h3 style="color:var(--crit);">Danger Zone</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin-bottom:12px;">Wipes everything — every member, every report (VS, donations, Desert Storm, all events), and all archived weeks. Standards reset to defaults. Meant for clearing out test data before going live. Type <span class="mono">DELETE</span> to confirm.</p>
+      <div class="toolbar">
+        <input type="text" class="search" id="resetConfirmInput" placeholder="Type DELETE to enable" style="max-width:220px;">
+        <button class="btn danger" id="resetAllBtn" disabled>Delete All Data</button>
+      </div>
+    </section>
   </div>
 
 </main>
@@ -1401,6 +1409,29 @@ document.getElementById("clearEventBtn").addEventListener("click", async ()=>{
     renderAll();
     showToast("Event data cleared.");
   }catch(e){ console.error(e); showToast("Delete failed — check connection.", true); }
+});
+
+/* ============ DANGER ZONE: RESET ALL DATA ============ */
+document.getElementById("resetConfirmInput").addEventListener("input",(e)=>{
+  document.getElementById("resetAllBtn").disabled = e.target.value.trim() !== "DELETE";
+});
+document.getElementById("resetAllBtn").addEventListener("click", async ()=>{
+  if(!confirm("This deletes every member, every report, and all archived weeks — permanently. Are you absolutely sure?")) return;
+  try{
+    await Promise.all([
+      fbDelete("/members"),
+      fbDelete("/reports"),
+      fbDelete("/weekArchive"),
+      fbPut("/standards", DEFAULT_STANDARDS)
+    ]);
+    state.members = {};
+    state.reports = {};
+    state.standards = {...DEFAULT_STANDARDS};
+    document.getElementById("resetConfirmInput").value = "";
+    document.getElementById("resetAllBtn").disabled = true;
+    renderAll();
+    showToast("All data cleared. Fresh start.");
+  }catch(e){ console.error(e); showToast("Reset failed — check connection.", true); }
 });
 
 /* ============ TOAST ============ */
